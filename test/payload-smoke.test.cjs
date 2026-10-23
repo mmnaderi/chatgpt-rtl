@@ -81,6 +81,15 @@ test('settings widget and stylesheets mount', () => {
     assert.ok(window.document.getElementById('codex-rtl-style'), 'dynamic stylesheet missing');
 });
 
+test('settings widget stays above desktop-shell stacking contexts', () => {
+    const { window } = run(DEFAULT);
+    const css = window.document.getElementById('rtl-widget-style').textContent;
+    assert.ok(
+        css.includes('.rtl-widget-container{position:fixed!important;bottom:16px!important;right:16px!important;z-index:2147483647!important;display:block!important;visibility:visible!important;opacity:1!important;pointer-events:auto!important;'),
+        'widget must remain visible above desktop-shell overlays'
+    );
+});
+
 test('Arabic block gets dir=rtl, English stays LTR', () => {
     const { window } = run(DEFAULT);
     const arabic = window.document.querySelector('.thread-scroll-container > div:nth-child(1)');

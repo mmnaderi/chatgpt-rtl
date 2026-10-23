@@ -888,7 +888,9 @@
             var widgetStyle = document.createElement('style');
             widgetStyle.id = 'rtl-widget-style';
             widgetStyle.innerHTML = [
-                '.rtl-widget-container{position:fixed;bottom:16px;right:16px;z-index:99999;direction:ltr;font-family:inherit;}',
+                // ChatGPT's desktop shell can introduce high stacking contexts. Keep this
+                // app-owned control above them so a successful renderer injection is visible.
+                '.rtl-widget-container{position:fixed!important;bottom:16px!important;right:16px!important;z-index:2147483647!important;display:block!important;visibility:visible!important;opacity:1!important;pointer-events:auto!important;direction:ltr;font-family:inherit;}',
                 '.rtl-widget-trigger{width:40px;height:40px;display:flex;align-items:center;justify-content:center;border-radius:9999px;background-color:var(--scrollbar-thumb,#555);color:#fff;cursor:pointer;opacity:0.8;transition:all 0.3s ease-in-out;}',
                 '.rtl-widget-trigger:hover{transform:scale(1.1);opacity:1;}',
                 '.rtl-widget-container:hover .rtl-widget-trigger{opacity:0;transform:scale(0.5);pointer-events:none;}',
