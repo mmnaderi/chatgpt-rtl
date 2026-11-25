@@ -29,6 +29,7 @@ import {
     restoreMacBundleBackup,
     signMacAppBundle
 } from './macos-signing.js';
+import { updateWindowsAsarIntegrity } from './windows-asar-integrity.js';
 import { buildShortcutInvocation } from './windows-shortcut.cjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -197,9 +198,11 @@ function findExecutable(dir) {
     if (!fs.existsSync(dir)) return null;
     try {
         const files = fs.readdirSync(dir);
-        // 1. Look for Codex.exe (case-insensitive)
-        const codexExe = files.find(f => f.toLowerCase() === 'codex.exe');
-        if (codexExe) return path.join(dir, codexExe);
+        // Recent Store builds ship ChatGPT.exe as the Electron launcher.
+        for (const name of ['chatgpt.exe', 'codex.exe']) {
+            const launcher = files.find(file => file.toLowerCase() === name);
+            if (launcher) return path.join(dir, launcher);
+        }
         
         // 2. Look for any other .exe files, ignoring common helpers
         const exes = files.filter(f => {
@@ -395,12 +398,13 @@ function findRestoreBackup(asarPath, manifest) {
     return backupPath;
 }
 
-function replaceArchiveWithRollback(newAsarPath, targetAsarPath, backupPath) {
+function replaceArchiveWithRollback(newAsarPath, targetAsarPath, backupPath, applyWindowsIntegrity) {
     const appBundle = os.platform() === 'darwin' ? getMacAppBundlePath(targetAsarPath) : null;
     try {
         moveFileIntoPlace(newAsarPath, targetAsarPath);
         setMacAsarIntegrity(targetAsarPath);
         if (appBundle) signMacAppBundle(appBundle);
+        if (applyWindowsIntegrity) applyWindowsIntegrity();
     } catch (error) {
         try {
             if (!restoreMacBundleBackup(targetAsarPath, backupPath)) {
@@ -751,12 +755,33 @@ try {
         // The existing app.asar.unpacked remains canonical. The temporary copy was
         // only needed so @electron/asar could reproduce the original header flags.
         fs.rmSync(newUnpackedPath, { recursive: true, force: true });
-        replaceArchiveWithRollback(newAsarPath, workingAsarPath, backupPath);
+        const storeDir = isStore ? path.dirname(path.dirname(workingAsarPath)) : null;
+        const exePath = storeDir ? findExecutable(storeDir) : null;
+        let applyWindowsIntegrity;
+        if (storeDir) {
+            if (!exePath) throw new Error('Could not find the Windows Store launcher.');
+            const executable = updateWindowsAsarIntegrity(
+                fs.readFileSync(exePath),
+                computeAsarHeaderHash(workingAsarPath),
+                computeAsarHeaderHash(newAsarPath)
+            );
+            if (executable) {
+                applyWindowsIntegrity = () => {
+                    const tempExe = path.join(storeDir, `.chatgpt-rtl-${process.pid}.exe`);
+                    try {
+                        fs.writeFileSync(tempExe, executable, { flag: 'wx' });
+                        fs.renameSync(tempExe, exePath);
+                    } finally {
+                        fs.rmSync(tempExe, { force: true });
+                    }
+                };
+            }
+        }
+        replaceArchiveWithRollback(newAsarPath, workingAsarPath, backupPath, applyWindowsIntegrity);
         spinner.succeed('Successfully patched ChatGPT/Codex!');
         
         if (isStore) {
-            const storeDestDir = path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Codex-Patched');
-            const exePath = findExecutable(storeDestDir);
+            const storeDestDir = storeDir;
             if (exePath) {
                 const shortcutPath = createWindowsShortcut(exePath, storeDestDir);
                 if (shortcutPath) {
